@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "@types/d3": "3.5.36",
+    "@types/d3.cloud.layout": "^1.2.32",
     "@types/jasmine": "2.5.43",
     "@types/jasmine-jquery": "1.5.29",
     "@types/jquery": "2.0.46",

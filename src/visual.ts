@@ -82,11 +82,13 @@ module powerbi.extensibility.visual {
         private static ClassName: string = "wordCloud";
 
         private static Words: ClassAndSelector = createClassAndSelector("words");
+        private static VisualInteractive: ClassAndSelector = createClassAndSelector("wordCloud--interactive");
         private static WordGroup: ClassAndSelector = createClassAndSelector("word");
+        private static SelectedWord: ClassAndSelector = createClassAndSelector("word--selected");
 
         private static StopWordsDelimiter: string = " ";
 
-        private static Radians: number = Math.PI / 180;
+        // private static Radians: number = Math.PI / 180;
 
         private static MinOpacity: number = 0.2;
         private static MaxOpacity: number = 1;
@@ -133,37 +135,11 @@ module powerbi.extensibility.visual {
          * Names of these consts aren't good, but I have no idea how to call them better.
          * TODO: Please rename them if you know any better names.
          */
-        private static TheFirstLineHeight: string = PixelConverter.toString(5); // Note: This construction fixes bug #6343.
-        private static TheSecondLineHeight: string = PixelConverter.toString(10); // Note: This construction fixes bug #6343.
+        // private static TheFirstLineHeight: string = PixelConverter.toString(5); // Note: This construction fixes bug #6343.
+        // private static TheSecondLineHeight: string = PixelConverter.toString(10); // Note: This construction fixes bug #6343.
         private static TheThirdLineHeight: string = PixelConverter.toString(14); // Note: This construction fixes bug #6343.
         private static TheFourthLineHeight: string = PixelConverter.toString(15); // Note: This construction fixes bug #6343.
-
-        private static DefaultTextFontSize: string = PixelConverter.toString(1);
-        private static MinFakeSize: number = 1;
-        private static DefaultStrokeStyle: string = "red";
-        private static DefaultTextAlign: string = "center";
-        private static ArchimedeanFactor: number = 0.1;
-
-        private static WidthOffset: number = 5;
-        private static PositionOffset: number = 1;
-        private static IndexOffset: number = 2;
-        private static LxOffset: number = 4;
-
-        private static ScalePositionOffset: number = 5;
-
-        private static ByteMask: number = 31;
-        private static TheFirstByteMask: number = 32;
-        private static SxMask: number = 127;
-
-        private static LineWidthFactor: number = 2;
-
-        private static AdditionalDataPointSize: number = 1;
-        private static AdditionalTextWidth: number = 2;
-        private static AdditionalRandomValue: number = 0.5;
-
         private static MinCount: number = 1;
-
-        private static DefaultDT: number = 1;
         private static DefaultX: number = 0;
         private static DefaultY: number = 0;
         private static DefaultPadding: number = 1;
@@ -175,21 +151,9 @@ module powerbi.extensibility.visual {
         private static DefaultY0: number = 0;
         private static DefaultX1: number = 0;
         private static DefaultY1: number = 0;
-
-        private static XOffsetPosition: number = 0.5;
-        private static YOffsetPosition: number = 0.75;
-        private static HeightOffsetPosition: number = 0.85;
-        private static TextFillColor: string = "rgba(63, 191, 191, 0.0)";
-
         private static MinFontSize: number = 0;
         private static DefaultAngle: number = 0;
-
-        private static ContextStartPosition: number = 0;
-
-        private static DefaultMaxHeightOfTheWord: number = 0;
-
         private static FontSizePercentage: number = 100;
-
         private get settings(): WordCloudSettings {
             return this.data && this.data.settings;
         }
@@ -197,27 +161,12 @@ module powerbi.extensibility.visual {
         private data: WordCloudData;
         private colorPalette: IColorPalette;
         private durationAnimations: number = 50;
-
-        private specialViewport: IViewport;
-
-        private fakeViewport: IViewport = {
-            width: 1500,
-            height: 1000
-        };
-
-        private canvasViewport: IViewport = {
-            width: 128,
-            height: 2048
-        };
-
         private root: Selection<any>;
         private main: Selection<any>;
         private wordsContainerSelection: Selection<any>;
-        private wordsGroupUpdateSelection: UpdateSelection<WordCloudDataPoint>;
         private wordsTextUpdateSelection: UpdateSelection<WordCloudDataPoint>;
-        public canvasContext: CanvasRenderingContext2D;
-        private fontFamily: string;
         private layout: VisualLayout;
+        private d3Layout: d3.layout.Cloud<d3.layout.cloud.Word>;
         private visualHost: IVisualHost;
         private selectionManager: ValueSelectionManager<string>;
         private visualUpdateOptions: VisualUpdateOptions;
@@ -439,7 +388,7 @@ module powerbi.extensibility.visual {
 
             if (!settings.general.isPunctuationsCharacters) {
                 item.text = item.text
-                   .replace(punctuationRegExp, " ");
+                    .replace(punctuationRegExp, " ");
             }
 
             if (splittedWords.length === splittedWordsOriginalLength) {
@@ -603,23 +552,25 @@ module powerbi.extensibility.visual {
 
             this.layout = new VisualLayout(null, WordCloud.DefaultMargin);
 
-            this.root.classed(WordCloud.ClassName, true);
+            this.root
+                .classed(WordCloud.ClassName, true)
+                .attr("width", "100%")
+                .attr("height", "100%");
 
             this.root.on("click", () => {
                 this.clearSelection();
             });
 
-            this.fontFamily = this.root.style("font-family");
-
-            this.main = this.root.append("g");
-
-            this.wordsContainerSelection = this.main
+            this.wordsContainerSelection = this.root
                 .append("g")
                 .classed(WordCloud.Words.className, true);
-
-            // init canvas context for calculate label positions
-            const canvas = document.createElement("canvas");
-            this.canvasContext = this.getCanvasContext(canvas);
+            this.d3Layout = d3.layout.cloud()
+                .padding(5)
+                .rotate(() => ~~(Math.random() * 2) * Math.random() * 90)
+                .font(this.root.style("font-family"))
+                .fontSize((d: WordCloudDataPoint) => d.size)
+                .text((d: WordCloudDataPoint) => d.text)
+                .on("end", this.render.bind(this));
         }
 
         public update(visualUpdateOptions: VisualUpdateOptions): void {
@@ -630,13 +581,12 @@ module powerbi.extensibility.visual {
                 || !visualUpdateOptions.viewport
                 || !(visualUpdateOptions.viewport.height >= WordCloud.MinViewport.height)
                 || !(visualUpdateOptions.viewport.width >= WordCloud.MinViewport.width)) {
-
                 return;
             }
-
             if (visualUpdateOptions !== this.visualUpdateOptions) {
                 this.incomingUpdateOptions = visualUpdateOptions;
             }
+
 
             if (!this.isUpdating && (this.incomingUpdateOptions !== this.visualUpdateOptions)) {
                 this.visualUpdateOptions = this.incomingUpdateOptions;
@@ -647,595 +597,60 @@ module powerbi.extensibility.visual {
                 if (this.layout.viewportInIsZero) {
                     return;
                 }
+                this.updateSize(visualUpdateOptions.viewport);
+                this.data = WordCloud.converter(dataView, this.colorPalette, this.visualHost, this.data);
 
-                this.updateSize();
-
-                const data: WordCloudData = WordCloud.converter(
-                    dataView,
-                    this.colorPalette,
-                    this.visualHost,
-                    this.data);
-
-                if (!data) {
+                if (!this.data) {
                     this.clear();
                     return;
                 }
 
-                this.data = data;
-
-                this.computePositions((wordCloudDataView: WordCloudDataView) => {
-                    this.render(wordCloudDataView);
-                });
+                this.updateWordSet(this.data.dataPoints);
+                this.d3Layout.start();
             }
         }
 
-        private clear(): void {
-            this.main
-                .select(WordCloud.Words.selectorName)
-                .selectAll(WordCloud.WordGroup.selectorName)
-                .remove();
+        private updateSize(viewport: IViewport) {
+            this.d3Layout.size([viewport.width, viewport.height]);
         }
 
-        private computePositions(onPositionsComputed: (WordCloudDataView) => void): void {
-            const words: WordCloudDataPoint[] = this.data.dataPoints;
+        private updateWordSet(points: WordCloudDataPoint[]): void {
+            this.d3Layout.words(points);
+        }
 
-            if (_.isEmpty(words)) {
-                this.clear();
-
+        private render(points: WordCloudDataPoint[]): void {
+            if (!points || !points.length) {
                 return;
             }
-
-            requestAnimationFrame(() => {
-                let surface: number[] = _.range(
-                    WordCloud.MinViewport.width,
-                    (this.specialViewport.width >> WordCloud.WidthOffset) * this.specialViewport.height,
-                    WordCloud.MinViewport.width);
-
-                words.forEach((dataPoint: WordCloudDataPoint) => {
-                    dataPoint.getWidthOfWord = () =>
-                        dataPoint.widthOfWord
-                        ||
-                        (dataPoint.widthOfWord = textMeasurementService.measureSvgTextWidth({
-                            fontFamily: this.fontFamily,
-                            fontSize: PixelConverter.toString(dataPoint.size + WordCloud.AdditionalDataPointSize),
-                            text: dataPoint.text
-                        }) + WordCloud.AdditionalTextWidth);
-                });
-
-                if (this.canvasContext) {
-                    this.computeCycle(
-                        words,
-                        this.canvasContext,
-                        surface,
-                        null,
-                        onPositionsComputed);
-                }
-            });
-        }
-
-        private computeCycle(
-            words: WordCloudDataPoint[],
-            context: CanvasRenderingContext2D,
-            surface: number[],
-            borders: IPoint[],
-            onPositionsComputed: (WordCloudDataView) => void,
-            wordsForDraw: WordCloudDataPoint[] = [],
-            index: number = 0): void {
-
-            let word: WordCloudDataPoint = words[index],
-                ratio: number = this.getRatio(words.length);
-
-            word.x = (this.specialViewport.width / ratio
-                * (Math.random() + WordCloud.AdditionalRandomValue)) >> WordCloud.PositionOffset;
-
-            word.y = (this.specialViewport.height / ratio
-                * (Math.random() + WordCloud.AdditionalRandomValue)) >> WordCloud.PositionOffset;
-
-            if (!word.sprite) {
-                this.generateSprites(context, words, index);
-            }
-
-            if (word.sprite && this.findPosition(surface, word, borders)) {
-                wordsForDraw.push(word);
-
-                borders = this.updateBorders(word, borders);
-                word.x -= this.specialViewport.width >> WordCloud.PositionOffset;
-                word.y -= this.specialViewport.height >> WordCloud.PositionOffset;
-
-                if (wordsForDraw.length >= this.settings.general.maxNumberOfWords) {
-                    index = words.length - 1;
-                }
-            }
-
-            if (++index < words.length && this.root) {
-                this.computeCycle(
-                    words,
-                    context,
-                    surface,
-                    borders,
-                    onPositionsComputed,
-                    wordsForDraw,
-                    index);
-            } else {
-                onPositionsComputed({
-                    data: wordsForDraw,
-                    leftBorder: borders && borders[0],
-                    rightBorder: borders && borders[1]
-                });
-            }
-        }
-
-        private getRatio(length: number): number {
-            let ratio: number = 1;
-
-            if (length <= 10) {
-                ratio = 5;
-            }
-            else if (length <= 25) {
-                ratio = 3;
-            }
-            else if (length <= 75) {
-                ratio = 1.5;
-            }
-            else if (length <= 100) {
-                ratio = 1.25;
-            }
-
-            return ratio;
-        }
-
-        private updateBorders(word: WordCloudDataPoint, borders: IPoint[]): IPoint[] {
-            if (borders && borders.length === 2) {
-                let leftBorder: IPoint = borders[0],
-                    rightBorder: IPoint = borders[1];
-
-                if (word.x + word.x0 < leftBorder.x) {
-                    leftBorder.x = word.x + word.x0;
-                }
-
-                if (word.y + word.y0 < leftBorder.y) {
-                    leftBorder.y = word.y + word.y0;
-                }
-
-                if (word.x + word.x1 > rightBorder.x) {
-                    rightBorder.x = word.x + word.x1;
-                }
-
-                if (word.y + word.y1 > rightBorder.y) {
-                    rightBorder.y = word.y + word.y1;
-                }
-            } else {
-                borders = [
-                    {
-                        x: word.x + word.x0,
-                        y: word.y + word.y0
-                    }, {
-                        x: word.x + word.x1,
-                        y: word.y + word.y1
-                    }
-                ];
-            }
-
-            return borders;
-        }
-
-        private generateSprites(
-            context: CanvasRenderingContext2D,
-            words: WordCloudDataPoint[],
-            startIndex: number): void {
-
-            context.clearRect(
-                WordCloud.ContextStartPosition,
-                WordCloud.ContextStartPosition,
-                this.canvasViewport.width << WordCloud.WidthOffset,
-                this.canvasViewport.height);
-
-            let x: number = WordCloud.DefaultX,
-                y: number = WordCloud.DefaultX,
-                maxHeight: number = WordCloud.DefaultMaxHeightOfTheWord;
-
-            for (let i: number = startIndex, length: number = words.length; i < length; i++) {
-                let currentWordData: WordCloudDataPoint = words[i],
-                    widthOfWord: number = currentWordData.getWidthOfWord(),
-                    heightOfWord: number = currentWordData.size << WordCloud.PositionOffset;
-
-                if (currentWordData.rotate) {
-                    const sr: number = Math.sin(currentWordData.rotate * WordCloud.Radians),
-                        cr: number = Math.cos(currentWordData.rotate * WordCloud.Radians),
-                        widthCr: number = widthOfWord * cr,
-                        widthSr: number = widthOfWord * sr,
-                        heightCr: number = heightOfWord * cr,
-                        heightSr: number = heightOfWord * sr;
-
-                    widthOfWord = (Math.max(
-                        Math.abs(widthCr + heightSr),
-                        Math.abs(widthCr - heightSr)) + WordCloud.ByteMask) >> WordCloud.WidthOffset << WordCloud.WidthOffset;
-
-                    heightOfWord = Math.floor(Math.max(
-                        Math.abs(widthSr + heightCr),
-                        Math.abs(widthSr - heightCr)));
-                } else {
-                    widthOfWord = (widthOfWord + WordCloud.ByteMask) >> WordCloud.WidthOffset << WordCloud.WidthOffset;
-                }
-
-                if (heightOfWord > maxHeight) {
-                    maxHeight = heightOfWord;
-                }
-
-                if (x + widthOfWord >= (this.canvasViewport.width << WordCloud.WidthOffset)) {
-                    x = 0;
-                    y += maxHeight;
-                    maxHeight = 0;
-                }
-
-                context.save();
-
-                context.font = `normal normal ${currentWordData.size + WordCloud.AdditionalDataPointSize}px ${this.fontFamily}`;
-
-                context.translate(
-                    (x + (widthOfWord >> WordCloud.PositionOffset)),
-                    (y + (heightOfWord >> WordCloud.PositionOffset)));
-
-                if (currentWordData.rotate) {
-                    context.rotate(currentWordData.rotate * WordCloud.Radians);
-                }
-
-                context.fillText(currentWordData.text, 0, 0);
-
-                if (currentWordData.padding) {
-                    context.lineWidth = WordCloud.LineWidthFactor * currentWordData.padding;
-                    context.strokeText(currentWordData.text, 0, 0);
-                }
-
-                context.restore();
-
-                currentWordData.width = widthOfWord;
-                currentWordData.height = heightOfWord;
-
-                currentWordData.xOff = x;
-                currentWordData.yOff = y;
-
-                currentWordData.x1 = widthOfWord >> WordCloud.PositionOffset;
-                currentWordData.y1 = heightOfWord >> WordCloud.PositionOffset;
-
-                currentWordData.x0 = -currentWordData.x1;
-                currentWordData.y0 = -currentWordData.y1;
-
-                x += widthOfWord;
-            }
-
-            this.setSprites(context, words);
-        }
-
-        private setSprites(context: CanvasRenderingContext2D, words: WordCloudDataPoint[]): void {
-            let pixels: Uint8ClampedArray,
-                sprites: number[] = [];
-
-            pixels = context.getImageData(
-                WordCloud.ContextStartPosition,
-                WordCloud.ContextStartPosition,
-                this.canvasViewport.width << WordCloud.WidthOffset,
-                this.canvasViewport.height).data;
-
-            for (let i: number = words.length - 1; i >= 0; i--) {
-                let currentWordData: WordCloudDataPoint = words[i],
-                    width: number = currentWordData.width,
-                    width32: number = width >> 5,
-                    height: number = currentWordData.y1 - currentWordData.y0,
-                    x: number = 0,
-                    y: number = 0,
-                    seen: number = 0,
-                    seenRow: number = 0;
-
-                if (currentWordData.xOff + width >= (this.canvasViewport.width << WordCloud.WidthOffset)
-                    || currentWordData.yOff + height >= this.canvasViewport.height) {
-                    currentWordData.sprite = null;
-
-                    continue;
-                }
-
-                for (let j: number = 0; j < height * width32; j++) {
-                    sprites[j] = 0;
-                }
-
-                if (currentWordData.xOff !== null) {
-                    x = currentWordData.xOff;
-                } else {
-                    return;
-                }
-
-                y = currentWordData.yOff;
-
-                seen = 0;
-                seenRow = -1;
-
-                for (let j: number = 0; j < height; j++) {
-                    for (let k: number = 0; k < width; k++) {
-                        const l: number = width32 * j + (k >> WordCloud.WidthOffset),
-                            index: number = ((y + j)
-                                * (this.canvasViewport.width << WordCloud.WidthOffset)
-                                + (x + k)) << WordCloud.IndexOffset,
-                            m: number = pixels[index]
-                                ? 1 << (WordCloud.ByteMask - (k % WordCloud.TheFirstByteMask))
-                                : 0;
-
-                        sprites[l] |= m;
-                        seen |= m;
-                    }
-
-                    if (seen) {
-                        seenRow = j;
-                    } else {
-                        currentWordData.y0++;
-                        height--;
-                        j--;
-                        y++;
-                    }
-                }
-
-                currentWordData.y1 = currentWordData.y0 + seenRow;
-                currentWordData.sprite = sprites.slice(0, (currentWordData.y1 - currentWordData.y0) * width32);
-            }
-        }
-
-        private findPosition(surface: number[], word: WordCloudDataPoint, borders: IPoint[]): boolean {
-            let startPoint: IPoint = { x: word.x, y: word.y },
-                delta: number = Math.sqrt(this.specialViewport.width * this.specialViewport.width
-                    + this.specialViewport.height * this.specialViewport.height),
-                point: IPoint,
-                dt: number = Math.random() < WordCloud.AdditionalRandomValue
-                    ? WordCloud.DefaultDT
-                    : -WordCloud.DefaultDT,
-                shift: number = -dt,
-                dx: number,
-                dy: number;
-
-            while (true) {
-                shift += dt;
-
-                point = this.archimedeanSpiral(shift);
-
-                dx = Math.floor(point.x);
-                dy = Math.floor(point.y);
-
-                if (Math.min(Math.abs(dx), Math.abs(dy)) >= delta) {
-                    break;
-                }
-
-                word.x = startPoint.x + dx;
-                word.y = startPoint.y + dy;
-
-                if (word.x + word.x0 < WordCloud.DefaultX0
-                    || word.y + word.y0 < WordCloud.DefaultY0
-                    || word.x + word.x1 > this.specialViewport.width
-                    || word.y + word.y1 > this.specialViewport.height) {
-
-                    continue;
-                }
-
-                if (!borders || !this.checkIntersect(word, surface)) {
-                    if (!borders || this.checkIntersectOfRectangles(word, borders[0], borders[1])) {
-                        let sprite: number[] = word.sprite,
-                            width: number = word.width >> WordCloud.WidthOffset,
-                            shiftWidth: number = this.specialViewport.width >> WordCloud.WidthOffset,
-                            lx: number = word.x - (width << WordCloud.LxOffset),
-                            sx: number = lx & WordCloud.SxMask,
-                            msx: number = WordCloud.TheFirstByteMask - sx,
-                            height: number = word.y1 - word.y0,
-                            x: number = (word.y + word.y0) * shiftWidth + (lx >> WordCloud.WidthOffset);
-
-                        for (let i: number = 0; i < height; i++) {
-                            let lastSprite: number = 0;
-
-                            for (let j: number = 0; j <= width; j++) {
-                                let leftMask: number = lastSprite << msx,
-                                    rightMask: number;
-
-                                if (j < width)
-                                    lastSprite = sprite[i * width + j];
-
-                                rightMask = j < width
-                                    ? lastSprite >>> sx
-                                    : 0;
-
-                                surface[x + j] |= leftMask | rightMask;
-                            }
-
-                            x += shiftWidth;
-                        }
-
-                        word.sprite = null;
-
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        private archimedeanSpiral(value: number): IPoint {
-            const ratio: number = this.specialViewport.width / this.specialViewport.height;
-
-            value = value * WordCloud.ArchimedeanFactor;
-
-            return {
-                x: ratio * value * Math.cos(value),
-                y: value * Math.sin(value)
-            };
-        }
-
-        private checkIntersect(word: WordCloudDataPoint, surface: number[]): boolean {
-            let shiftWidth: number = this.specialViewport.width >> WordCloud.WidthOffset,
-                sprite: number[] = word.sprite,
-                widthOfWord: number = word.width >> WordCloud.WidthOffset,
-                lx: number = word.x - (widthOfWord << WordCloud.LxOffset),
-                sx: number = lx & WordCloud.SxMask,
-                msx: number = WordCloud.TheFirstByteMask - sx,
-                heightOfWord: number = word.y1 - word.y0,
-                x: number = (word.y + word.y0) * shiftWidth + (lx >> WordCloud.WidthOffset);
-
-            for (let i: number = 0; i < heightOfWord; i++) {
-                let lastSprite: number = 0;
-
-                for (let j: number = 0; j <= widthOfWord; j++) {
-                    let mask: number = 0,
-                        leftMask: number,
-                        intersectMask: number = 0;
-
-                    leftMask = lastSprite << msx;
-
-                    if (j < widthOfWord) {
-                        lastSprite = sprite[i * widthOfWord + j];
-                    }
-
-                    mask = j < widthOfWord
-                        ? lastSprite >>> sx
-                        : 0;
-
-                    intersectMask = (leftMask | mask) & surface[x + j];
-
-                    if (intersectMask) {
-                        return true;
-                    }
-                }
-
-                x += shiftWidth;
-            }
-
-            return false;
-        }
-
-        private checkIntersectOfRectangles(
-            word: WordCloudDataPoint,
-            leftBorder: IPoint,
-            rightBorder: IPoint): boolean {
-
-            return (word.x + word.x1) > leftBorder.x
-                && (word.x + word.x0) < rightBorder.x
-                && (word.y + word.y1) > leftBorder.y
-                && (word.y + word.y0) < rightBorder.y;
-        }
-
-        /**
-         * Returns a CanvasRenderingContext2D to compute size of the text.
-         *
-         * Public for testability.
-         */
-        public getCanvasContext(canvasElement: HTMLCanvasElement): CanvasRenderingContext2D {
-            if (!canvasElement) {
-                return null;
-            }
-
-            canvasElement.width = this.canvasViewport.width << WordCloud.WidthOffset;
-            canvasElement.height = this.canvasViewport.height;
-
-            const context = canvasElement.getContext("2d");
-
-            context.fillStyle = context.strokeStyle = WordCloud.DefaultStrokeStyle;
-            context.textAlign = WordCloud.DefaultTextAlign;
-
-            return context;
-        }
-
-        private updateSize(): void {
-            let fakeWidth: number,
-                fakeHeight: number,
-                ratio: number;
-
-            ratio = Math.sqrt((this.fakeViewport.width * this.fakeViewport.height)
-                / (this.layout.viewportIn.width * this.layout.viewportIn.height));
-
-            if (isNaN(ratio)) {
-                fakeHeight = fakeWidth = WordCloud.MinFakeSize;
-            } else {
-                fakeHeight = this.layout.viewportIn.height * ratio;
-                fakeWidth = this.layout.viewportIn.width * ratio;
-            }
-
-            this.specialViewport = {
-                height: fakeHeight,
-                width: fakeWidth
-            };
-
-            this.root.attr({
-                "height": this.layout.viewport.height,
-                "width": this.layout.viewport.width
-            });
-        }
-
-        private render(wordCloudDataView: WordCloudDataView): void {
-            if (!wordCloudDataView || !wordCloudDataView.data) {
-                return;
-            }
-
-            this.scaleMainView(wordCloudDataView);
-
-            this.wordsGroupUpdateSelection = this.main
-                .select(WordCloud.Words.selectorName)
-                .selectAll("g")
-                .data(wordCloudDataView.data);
-
-            let wordGroupEnterSelection: Selection<WordCloudDataPoint> = this.wordsGroupUpdateSelection
-                .enter()
-                .append("svg:g")
-                .classed(WordCloud.WordGroup.className, true);
-
-            wordGroupEnterSelection
-                .append("svg:text")
-                .style("font-size", WordCloud.DefaultTextFontSize);
-
-            wordGroupEnterSelection
-                .append("svg:rect");
-
-            this.wordsGroupUpdateSelection
-                .exit()
-                .remove();
-
-            this.wordsGroupUpdateSelection
-                .attr("transform", (dataPoint: WordCloudDataPoint) => {
-                    return `${translate(dataPoint.x, dataPoint.y)} rotate(${dataPoint.rotate})`;
-                })
-                .sort((a: WordCloudDataPoint, b: WordCloudDataPoint) => {
-                    return b.height * b.width - a.height * a.width;
-                });
-
-            this.wordsTextUpdateSelection = this.wordsGroupUpdateSelection
+            this.clear();
+            this.wordsContainerSelection
+                .attr("width", this.d3Layout.size()[0])
+                .attr("height", this.d3Layout.size()[1])
+                .attr("transform", "translate(" + this.d3Layout.size()[0] / 2 + "," + this.d3Layout.size()[1] / 2 + ")")
                 .selectAll("text")
-                .data((dataPoint: WordCloudDataPoint) => [dataPoint]);
-
-            this.wordsTextUpdateSelection.text((dataPoint: WordCloudDataPoint) => dataPoint.text);
-
-            this.animateSelection(this.wordsTextUpdateSelection, this.durationAnimations)
+                .data(points)
+                .enter()
+                .append("text")
+                .classed(WordCloud.WordGroup.className, true)
                 .style({
                     "font-size": ((item: WordCloudDataPoint): string => PixelConverter.toString(item.size)),
                     "fill": ((item: WordCloudDataPoint): string => item.color),
-                });
-
-            this.wordsGroupUpdateSelection
-                .selectAll("rect")
-                .data((dataPoint: WordCloudDataPoint) => [dataPoint])
-                .attr({
-                    x: (dataPoint: WordCloudDataPoint) => -dataPoint.getWidthOfWord() * WordCloud.XOffsetPosition,
-                    width: (dataPoint: WordCloudDataPoint) => dataPoint.getWidthOfWord(),
-                    y: (dataPoint: WordCloudDataPoint) => -dataPoint.size * WordCloud.YOffsetPosition,
-                    height: (dataPoint: WordCloudDataPoint) => dataPoint.size * WordCloud.HeightOffsetPosition,
-                    fill: () => WordCloud.TextFillColor,
                 })
+                .attr("transform", (d: WordCloudDataPoint) => "translate(" + [d.x, d.y] + ")rotate(" + d.rotate + ")")
+                .text((dataPoint: WordCloudDataPoint) => dataPoint.text)
                 .on("click", (dataPoint: WordCloudDataPoint) => {
-                    (d3.event as MouseEvent).stopPropagation();
-
+                    const event = (d3.event as MouseEvent);
+                    event.stopPropagation();
+                    d3.select(event.target).classed(WordCloud.SelectedWord.className);
+                    this.root.classed(WordCloud.VisualInteractive.className, true);
                     this.setSelection(dataPoint);
                 });
-
-            this.clearIncorrectSelection(this.data.dataView);
-            this.renderSelection();
-
-            this.isUpdating = false;
-
-            if (this.incomingUpdateOptions !== this.visualUpdateOptions) {
-                this.update(this.incomingUpdateOptions);
-            }
+        }
+        private clear(): void {
+            this.root
+                .select(WordCloud.Words.selectorName)
+                .selectAll(WordCloud.WordGroup.selectorName)
+                .remove();
         }
 
         private clearIncorrectSelection(dataView: DataView): void {
@@ -1293,55 +708,11 @@ module powerbi.extensibility.visual {
 
         private clearSelection(): void {
             this.selectionManager
-                .clear(true)
-                .then(() => this.renderSelection());
-        }
-
-        private scaleMainView(wordCloudDataView: WordCloudDataView): void {
-            const rectangles: ClientRect[] = wordCloudDataView.data.map((dataPoint: WordCloudDataPoint) => {
-                const hw: number = dataPoint.width / 2,
-                    hh: number = dataPoint.height / 2;
-
-                return {
-                    left: dataPoint.x - hw,
-                    top: dataPoint.y - hh,
-                    right: dataPoint.x + hw,
-                    bottom: dataPoint.y + hh
-                } as ClientRect;
-            });
-
-            if (_.isEmpty(rectangles)) {
-                return;
-            }
-
-            const rectangle: ClientRect = {
-                left: _.minBy(rectangles, (rect: ClientRect) => rect.left).left,
-                top: _.minBy(rectangles, (rect: ClientRect) => rect.top).top,
-                right: _.maxBy(rectangles, (rect: ClientRect) => rect.right).right,
-                bottom: _.maxBy(rectangles, (rect: ClientRect) => rect.bottom).bottom
-            } as ClientRect;
-
-            const rectWidth: number = rectangle.right - rectangle.left,
-                rectHeight: number = rectangle.bottom - rectangle.top;
-
-            const scaleByX: number = this.layout.viewportIn.width / rectWidth,
-                scaleByY: number = this.layout.viewportIn.height / rectHeight,
-                scale: number = Math.min(scaleByX, scaleByY);
-
-            const x: number = -rectangle.left * scale + WordCloud.ScalePositionOffset,
-                y: number = -rectangle.top * scale + WordCloud.ScalePositionOffset;
-
-            /**
-             * Note: This construction fixes bug #6343.
-             * Edge renders words out of the canvas, so we use this hack to fix it.
-             * The line-height doesn't work with svg, but it call the render cycle of the browser.
-             */
-            this.main
-                .style("line-height", WordCloud.TheFirstLineHeight); // Note: This construction fixes bug #6343.
-
-            this.main
-                .attr("transform", translateAndScale(x, y, scale))
-                .style("line-height", WordCloud.TheSecondLineHeight); // Note: This construction fixes bug #6343.
+                .clear(true);
+            this.root
+                .selectAll(WordCloud.SelectedWord.selectorName)
+                .classed(WordCloud.SelectedWord.className, false);
+            this.root.classed(WordCloud.VisualInteractive.className, false);
         }
 
         private renderSelection(): void {
